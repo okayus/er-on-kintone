@@ -40,6 +40,9 @@
     const serializer = new XMLSerializer();
     svg = serializer.serializeToString(svgDoc.documentElement);
     diagram.innerHTML = svg;
+    // svgを拡大表示
+    diagram.style.width = '1000%';
+    diagram.style.height = '1000%';
     content.appendChild(diagram);
   });
 
