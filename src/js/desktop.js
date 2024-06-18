@@ -1,5 +1,4 @@
 (function (PLUGIN_ID) {
-  // Mermaid.jsの初期化
   window.mermaid.initialize({ startOnLoad: false });
 
   kintone.events.on('app.record.index.show', async (event) => {
@@ -12,7 +11,6 @@
       'GET',
       {}
     );
-    // const appProperties = {4:{name:"顧客リスト"},6:{name:"ファイル管理"}}のような形式
     const appProperties = {};
     respApps.apps.forEach((app) => {
       appProperties[app.appId] = {
@@ -21,20 +19,30 @@
     });
 
     const appIdList = await respApps.apps.map((app) => app.appId);
-    // appPropertiesを作成
     await createAppProperties(appProperties, appIdList);
 
-    // erDiagramを生成
-    const erDiagram = createErDiagram(appProperties);
+    const replaceDictionary = {};
+    const erDiagram = createErDiagram(appProperties, replaceDictionary);
     const content = document.querySelector('#er-diagram');
     const diagram = document.createElement('div');
     diagram.id = 'diagram';
     diagram.className = 'mermaid';
     let { svg } = await mermaid.render('diagram', erDiagram);
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svg, 'image/svg+xml');
+    const textElements = svgDoc.querySelectorAll('text');
+    textElements.forEach(textElem => {
+      const originalText = textElem.textContent;
+      if (replaceDictionary[originalText]) {
+        textElem.textContent = replaceDictionary[originalText];
+      }
+    });
+    const serializer = new XMLSerializer();
+    svg = serializer.serializeToString(svgDoc.documentElement);
     diagram.innerHTML = svg;
     content.appendChild(diagram);
   });
-  // appProperties作成処理
+
   const createAppProperties = async (appProperties, appIdList) => {
     await Promise.all(
       appIdList.map(async (appId) => {
@@ -79,32 +87,34 @@
     );
   };
 
-  // appPropertiesからmermaid記法のerDiagramを生成する
-  const createErDiagram = (appProperties) => {
+  const createErDiagram = (appProperties, replaceDictionary) => {
+    // PK、FK名がpkappIdだと枠が小さくなるため、調整用の文字列を追加
+    const margin = 'aaaaaaaaaaaaaaaaaaaaaaaa';
     let erDiagram = 'erDiagram\n';
     let tableDefinition = '';
     let rerationDefinition = '';
     Object.keys(appProperties).forEach((appId) => {
       const app = appProperties[appId];
       tableDefinition += `  app${appId} {\n`;
-      app.primaryKeyList.forEach((primaryKey) => {
-        tableDefinition += `    ${primaryKey.type} pk${appId} PK\n`;
+      replaceDictionary[`app${appId}`] = app.name;
+      app.primaryKeyList.forEach((primaryKey, index) => {
+        tableDefinition += `    ${primaryKey.type} pk${appId}${index}${margin} PK\n`;
+        replaceDictionary[`pk${appId}${index}${margin}`] = primaryKey.label;
       });
-      if (app.primaryKeyList.length === 0) tableDefinition += '    int id PK\n';
+      if (app.primaryKeyList.length === 0) {
+        tableDefinition += `    int pk${appId}${margin} PK\n`;
+        replaceDictionary[`pk${appId}${margin}`] = 'レコード番号';
+      }
       if (app.foreignKeyList.length > 0) {
         app.foreignKeyList.forEach((foreignKey) => {
-          tableDefinition += `    ${foreignKey.type} pk${foreignKey.relatedApp} FK\n`;
-          rerationDefinition += `  app${foreignKey.relatedApp} ||--o{ app${appId} : pk${foreignKey.relatedApp}\n`;
+          tableDefinition += `    ${foreignKey.type} pk${foreignKey.relatedApp}${margin} FK\n`;
+          rerationDefinition += `  app${foreignKey.relatedApp} ||--o{ app${appId} : pk${foreignKey.relatedApp}${margin}\n`;
+          replaceDictionary[`pk${foreignKey.relatedApp}${margin}`] = foreignKey.label;
         });
       }
       tableDefinition += '  }\n';
     });
     erDiagram += tableDefinition + rerationDefinition;
     return erDiagram;
-  };
-
-  const replaceSVGText = (text, replaceText) => {
-    // text要素の文字列を置換する
-    return text.replace(/<text.*?>(.*?)<\/text>/g, replaceText);
   };
 })(kintone.$PLUGIN_ID);
